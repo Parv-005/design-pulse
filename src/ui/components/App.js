@@ -47,6 +47,9 @@ export class App extends LitElement {
     _showSecondPage = false;
 
     @state()
+    _showThirdPage = false;  // Scan results page
+
+    @state()
     _selectedBrand = null;
 
     @state()
@@ -75,6 +78,12 @@ export class App extends LitElement {
 
     @state()
     _showFontPicker = false;
+
+    @state()
+    _scanResults = null;  // Stores results from brand check
+
+    @state()
+    _isScanning = false;  // Loading state for scan button
 
     // Common fonts supported by Adobe Express
     _expressFonts = [
@@ -146,6 +155,7 @@ export class App extends LitElement {
     _handleAddBrand() {
         // Show the second page, hide the first page
         console.log("Add new brand clicked");
+        this._selectedBrand = null; // Clear selected brand so _collectFormValues knows it's a new brand
         this._showSecondPage = true;
     }
 
@@ -158,7 +168,7 @@ export class App extends LitElement {
         const selectedValue = event.target.value;
         this._selectedBrand = selectedValue;
         console.log("Selected brand:", selectedValue);
-        
+
         // Load brand data when selected
         if (selectedValue) {
             const savedBrand = this._savedBrands.find(b => b.brandName === selectedValue);
@@ -179,17 +189,17 @@ export class App extends LitElement {
                 priority: c.priority || index + 1
             }));
         }
-        
+
         // Populate fonts
         if (brandData.selectedFonts && Array.isArray(brandData.selectedFonts)) {
             this._selectedFonts = [...brandData.selectedFonts];
         }
-        
+
         // Populate logo
         if (brandData.logo) {
             this._uploadedLogo = brandData.logo;
         }
-        
+
         // Populate PDF
         if (brandData.pdf) {
             this._uploadedPdf = brandData.pdf;
@@ -202,7 +212,7 @@ export class App extends LitElement {
     async _handleDeleteBrand(brandName, event) {
         event.stopPropagation();
         event.preventDefault();
-        
+
         // Use sweetAlert for confirmation
         const Swal = window.Swal;
         if (!Swal) {
@@ -210,18 +220,18 @@ export class App extends LitElement {
             if (confirm(`Are you sure you want to delete "${brandName}" and all its data?`)) {
                 this._savedBrands = this._savedBrands.filter(b => b.brandName !== brandName);
                 this._saveBrands();
-                
+
                 if (this._selectedBrand === brandName) {
                     this._selectedBrand = null;
                     this._resetForm();
                 }
-                
+
                 console.log(`Brand "${brandName}" deleted`);
                 this.requestUpdate();
             }
             return;
         }
-        
+
         const result = await Swal.fire({
             title: 'Delete Brand?',
             text: `Are you sure you want to delete "${brandName}" and all its data? This action cannot be undone.`,
@@ -236,13 +246,13 @@ export class App extends LitElement {
         if (result.isConfirmed) {
             this._savedBrands = this._savedBrands.filter(b => b.brandName !== brandName);
             this._saveBrands();
-            
+
             // If deleted brand was selected, clear selection
             if (this._selectedBrand === brandName) {
                 this._selectedBrand = null;
                 this._resetForm();
             }
-            
+
             // Show success message
             await Swal.fire({
                 title: 'Deleted!',
@@ -251,7 +261,7 @@ export class App extends LitElement {
                 timer: 1500,
                 showConfirmButton: false
             });
-            
+
             console.log(`Brand "${brandName}" deleted`);
             this.requestUpdate(); // Update UI to reflect changes
         }
@@ -279,13 +289,13 @@ export class App extends LitElement {
             const dataUrl = e.target.result;
             this._uploadedPdf = dataUrl;
             this._pdfFileName = file.name;
-            
+
             // Send to backend for extraction
             if (this._sandboxProxy && this._sandboxProxy.extractBrandDataFromPdf) {
                 try {
                     const extractedData = await this._sandboxProxy.extractBrandDataFromPdf(dataUrl, file.name);
                     console.log("Extracted brand data from PDF:", extractedData);
-                    
+
                     // Populate form with extracted data
                     if (extractedData) {
                         this._populateFormFromExtractedData(extractedData);
@@ -295,7 +305,7 @@ export class App extends LitElement {
                     alert("Error extracting data from PDF. Please try again or add manually.");
                 }
             }
-            
+
             // Update UI
             this.requestUpdate();
         };
@@ -308,13 +318,13 @@ export class App extends LitElement {
             const brandNameInput = this.shadowRoot.querySelector('#newBrandName');
             if (brandNameInput) brandNameInput.value = extractedData.brandName;
         }
-        
+
         // Populate tagline
         if (extractedData.tagline) {
             const taglineInput = this.shadowRoot.querySelector('#tagline');
             if (taglineInput) taglineInput.value = extractedData.tagline;
         }
-        
+
         // Populate colors
         if (extractedData.colors && Array.isArray(extractedData.colors)) {
             this._brandColors = extractedData.colors.map((c, index) => ({
@@ -324,34 +334,34 @@ export class App extends LitElement {
                 priority: c.priority || index + 1
             }));
         }
-        
+
         // Populate fonts
         if (extractedData.selectedFonts && Array.isArray(extractedData.selectedFonts)) {
             this._selectedFonts = [...extractedData.selectedFonts];
         }
-        
+
         // Populate logo
         if (extractedData.logo) {
             this._uploadedLogo = extractedData.logo;
         }
-        
+
         // Populate font sizes
         if (extractedData.minSize !== undefined) {
             const minSizeInput = this.shadowRoot.querySelector('#minSize');
             if (minSizeInput) minSizeInput.value = extractedData.minSize;
         }
-        
+
         if (extractedData.maxSize !== undefined) {
             const maxSizeInput = this.shadowRoot.querySelector('#maxSize');
             if (maxSizeInput) maxSizeInput.value = extractedData.maxSize;
         }
-        
+
         // Populate letter spacing
         if (extractedData.letterSpacing !== undefined) {
             const letterSpacingInput = this.shadowRoot.querySelector('#letterSpacingSize');
             if (letterSpacingInput) letterSpacingInput.value = extractedData.letterSpacing;
         }
-        
+
         // Populate line height
         if (extractedData.lineHeight !== undefined) {
             const lineHeightInput = this.shadowRoot.querySelector('#lineHeight');
@@ -400,6 +410,75 @@ export class App extends LitElement {
         return formData;
     }
 
+    /**
+     * Convert form data to brand guidelines structure
+     * This is used for compatibility with the brand checking functions
+     * @param {Object} formData - Form data from _collectFormValues()
+     * @param {Array} layersData - Layers data from getAllLayersData() to extract canvas size
+     * @returns {Object} Brand guidelines in the standard format
+     */
+    _convertToBrandGuidelines(formData, layersData = []) {
+        // Use saved referenceImageSize if available (from when brand was created)
+        // Otherwise, calculate from current artboard dimensions
+        let referenceImageSize = formData.referenceImageSize || 500;
+
+        if (!formData.referenceImageSize && layersData.length > 0) {
+            const artboard = layersData.find(layer => layer.type === "ab:Artboard");
+            if (artboard && artboard.width && artboard.height) {
+                referenceImageSize = Math.min(artboard.width, artboard.height);
+            }
+        }
+
+        // Build brand fonts array as simple string array
+        // (matches user's updated structure.json format)
+        const brandFonts = formData.selectedFonts || [];
+
+        // Separate colors by priority (1-2 = primary, rest = secondary)
+        const sortedColors = [...(formData.colors || [])].sort((a, b) => a.priority - b.priority);
+        const primaryColors = sortedColors
+            .filter(c => c.priority <= 2)
+            .map(c => c.value);
+        const secondaryColors = sortedColors
+            .filter(c => c.priority > 2)
+            .map(c => c.value);
+
+        // Build logo object if available
+        let logoObj = {
+            width: 0,
+            height: 0,
+            minWidth: 0,
+            maxWidth: 0,
+            aspectRatio: 0
+        };
+
+        // If logo is a data URL, we can't get dimensions directly in UI
+        // The sandbox will need to extract these from the image data
+        if (formData.logo) {
+            logoObj.dataUrl = formData.logo;
+        }
+
+        return {
+            brandName: formData.brandName || "",
+            referenceImageSize: referenceImageSize,
+            logo: logoObj,
+            tagline: formData.tagline || "",
+            typography: {
+                brandFonts: brandFonts,
+                fontSizeRange: [
+                    formData.minSize || 12,
+                    formData.maxSize || 72
+                ],
+                // Standardized casing to match structure.json
+                lineSpacing: formData.lineHeight || 0,
+                letterSpacing: formData.letterSpacing || 1.2
+            },
+            colors: {
+                primary: primaryColors,
+                secondary: secondaryColors
+            }
+        };
+    }
+
     async _handleSubmitBrand() {
         const formData = this._collectFormValues();
 
@@ -412,6 +491,20 @@ export class App extends LitElement {
         }
 
         try {
+            // Get layers to calculate referenceImageSize
+            let referenceImageSize = 500; // fallback
+            if (this._sandboxProxy && this._sandboxProxy.getAllLayersData) {
+                const layers = await this._sandboxProxy.getAllLayersData();
+                const artboard = layers.find(layer => layer.type === "ab:Artboard");
+                if (artboard && artboard.width && artboard.height) {
+                    referenceImageSize = Math.min(artboard.width, artboard.height);
+                }
+            }
+
+            // Add referenceImageSize to form data for saving
+            formData.referenceImageSize = referenceImageSize;
+            console.log("Calculated referenceImageSize:", referenceImageSize);
+
             // Send data to backend (sandbox)
             if (this._sandboxProxy && this._sandboxProxy.saveBrandData) {
                 await this._sandboxProxy.saveBrandData(formData);
@@ -433,6 +526,7 @@ export class App extends LitElement {
                 // Reset form and navigate back
                 this._resetForm();
                 this._showSecondPage = false;
+                this.requestUpdate(); // Force UI refresh to show new brand in dropdown
             } else {
                 console.warn("Backend API not available yet");
                 // Fallback: just log the data for now
@@ -469,21 +563,202 @@ export class App extends LitElement {
         this._pdfFileName = null;
     }
 
-    async _handleCheckBrand() {
-        // When user selects a brand from picker, collect and send it
-        if (this._selectedBrand) {
-            const formData = this._collectFormValues();
-            console.log("Checking brand with data:", formData);
+    /**
+     * Handle "Check Brand" button click
+     * 
+     * This function navigates to the third page (scan results page)
+     * when user clicks "Continue" with a selected brand.
+     * 
+     * The actual scan is triggered separately via _handleScanDesign
+     */
+    _handleCheckBrand() {
+        if (!this._selectedBrand) {
+            console.warn("[_handleCheckBrand] No brand selected");
+            return;
+        }
 
-            // Send brand data to backend
-            if (this._sandboxProxy && this._sandboxProxy.checkBrand) {
-                try {
-                    await this._sandboxProxy.checkBrand(formData);
-                    console.log("Brand data sent to backend successfully");
-                } catch (error) {
-                    console.error("Error sending brand data to backend:", error);
-                }
+        console.log("[_handleCheckBrand] Navigating to scan results page for brand:", this._selectedBrand);
+
+        // Reset scan results when entering the page
+        this._scanResults = null;
+        this._isScanning = false;
+
+        // Navigate to third page
+        this._showThirdPage = true;
+    }
+
+    /**
+     * Navigate back from third page to first page
+     */
+    _handleBackFromThirdPage() {
+        console.log("[_handleBackFromThirdPage] Going back to brand selection");
+        this._showThirdPage = false;
+        this._scanResults = null;
+        this._isScanning = false;
+    }
+
+    /**
+     * Handle "Scan Design" button click on third page
+     * 
+     * This function:
+     * 1. Collects form values
+     * 2. Gets layers from the document
+     * 3. Converts to brand guidelines format
+     * 4. Calls checkBrand in the sandbox
+     * 5. Stores results in _scanResults for UI display
+     * 
+     * The result object contains:
+     * - issues: Array of all issues found
+     * - summary: { totalIssues, fontSizeIssueCount, fontFamilyIssueCount }
+     * - layers: All extracted layers from the document
+     */
+    async _handleScanDesign() {
+        if (!this._selectedBrand) {
+            console.warn("[_handleScanDesign] No brand selected");
+            return;
+        }
+
+        console.log("=".repeat(50));
+        console.log("[_handleScanDesign] Starting design scan...");
+        console.log("=".repeat(50));
+
+        this._isScanning = true;
+        this._scanResults = null;
+
+        try {
+            // Step 1: Collect form values
+            const formData = this._collectFormValues();
+            console.log("[_handleScanDesign] Form data collected:", formData);
+
+            // Step 2: Get layers from document
+            console.log("[_handleScanDesign] Getting layers from document...");
+            const layers = await this._sandboxProxy.getAllLayersData();
+            console.log("[_handleScanDesign] Got", layers.length, "layers");
+
+            // Step 3: Convert form data to brand guidelines format
+            const brandGuidelines = this._convertToBrandGuidelines(formData, layers);
+            console.log("[_handleScanDesign] Brand guidelines:", JSON.stringify(brandGuidelines, null, 2));
+
+            // Step 4: Call checkBrand in the sandbox
+            console.log("[_handleScanDesign] Calling sandbox.checkBrand()...");
+            const result = await this._sandboxProxy.checkBrand(brandGuidelines);
+
+            // Step 5: Store results and log
+            this._scanResults = result;
+
+            console.log("=".repeat(50));
+            console.log("[_handleScanDesign] SCAN COMPLETE");
+            console.log("=".repeat(50));
+            console.log("[_handleScanDesign] Success:", result.success);
+            console.log("[_handleScanDesign] Total Issues:", result.summary.totalIssues);
+            console.log("[_handleScanDesign]   - Font Size Issues:", result.summary.fontSizeIssueCount);
+            console.log("[_handleScanDesign]   - Font Family Issues:", result.summary.fontFamilyIssueCount);
+
+            if (result.issues.length > 0) {
+                console.log("[_handleScanDesign] Issues:");
+                result.issues.forEach((issue, i) => {
+                    console.log(`  ${i + 1}. [${issue.type}] ${issue.message}`);
+                    console.log(`     Element: "${issue.elementText}" (ID: ${issue.elementId})`);
+                });
+            } else {
+                console.log("[_handleScanDesign] ✓ No issues found! Design follows brand guidelines.");
             }
+            console.log("=".repeat(50));
+
+            return result;
+
+        } catch (error) {
+            console.error("[_handleScanDesign] Error:", error);
+            this._scanResults = { success: false, error: error.message, issues: [], summary: { totalIssues: 0 } };
+        } finally {
+            this._isScanning = false;
+        }
+    }
+
+    /**
+     * Handle "One-Click Fix" button click on third page
+     * TODO: Implement fix logic (to be done by teammate)
+     */
+    _handleOneClickFix() {
+        console.log("[_handleOneClickFix] One-click fix requested");
+        console.log("[_handleOneClickFix] Issues to fix:", this._scanResults?.issues);
+        // TODO: Implement fix logic
+        alert("One-Click Fix - Coming Soon!");
+    }
+
+    /**
+     * TEST FUNCTION: Scan design with hardcoded NovaTech brand guidelines
+     * This is for testing purposes - call from browser console or add a test button
+     * 
+     * Usage from console: document.querySelector('add-on-component')._handleTestScan()
+     */
+    async _handleTestScan() {
+        console.log("=".repeat(50));
+        console.log("[TEST] Starting NovaTech brand test scan...");
+        console.log("=".repeat(50));
+
+        // Hardcoded NovaTech brand guidelines
+        const novatechBrand = {
+            brandName: "NovaTech",
+            referenceImageSize: 1200,
+            logo: {
+                width: 240,
+                height: 80,
+                minWidth: 120,
+                maxWidth: 480,
+                aspectRatio: 3
+            },
+            tagline: "Design the Future",
+            typography: {
+                brandFonts: ["Roboto", "Arial"],
+                fontSizeRange: [12, 72],
+                lineSpacing: 0,
+                letterSpacing: 1.2
+            },
+            colors: {
+                primary: ["#4B2BEE"],
+                secondary: ["#FF5D5D", "#1F2937"]
+            }
+        };
+
+        console.log("[TEST] Using NovaTech brand guidelines:", JSON.stringify(novatechBrand, null, 2));
+
+        this._isScanning = true;
+        this._scanResults = null;
+
+        try {
+            // Call checkBrand in the sandbox
+            const result = await this._sandboxProxy.checkBrand(novatechBrand);
+
+            // Store results
+            this._scanResults = result;
+
+            console.log("=".repeat(50));
+            console.log("[TEST] SCAN COMPLETE");
+            console.log("=".repeat(50));
+            console.log("[TEST] Success:", result.success);
+            console.log("[TEST] Total Issues:", result.summary.totalIssues);
+            console.log("[TEST]   - Font Size Issues:", result.summary.fontSizeIssueCount);
+            console.log("[TEST]   - Font Family Issues:", result.summary.fontFamilyIssueCount);
+
+            if (result.issues.length > 0) {
+                console.log("[TEST] Issues:");
+                result.issues.forEach((issue, i) => {
+                    console.log(`  ${i + 1}. [${issue.type}] ${issue.message}`);
+                    console.log(`     Element: "${issue.elementText}" (ID: ${issue.elementId})`);
+                });
+            } else {
+                console.log("[TEST] ✓ No issues found! Design follows NovaTech brand guidelines.");
+            }
+            console.log("=".repeat(50));
+
+            return result;
+
+        } catch (error) {
+            console.error("[TEST] Error:", error);
+            this._scanResults = { success: false, error: error.message, issues: [], summary: { totalIssues: 0 } };
+        } finally {
+            this._isScanning = false;
         }
     }
 
@@ -743,7 +1018,7 @@ export class App extends LitElement {
         // You may use "this.addOnUISdk.app.ui.theme" to get the current theme and react accordingly.
         return html`
       <sp-theme system="express" color="light" scale="medium">
-        <section class="first-page" style="display: ${this._showSecondPage ? 'none' : 'block'}">
+        <section class="first-page" style="display: ${this._showSecondPage || this._showThirdPage ? 'none' : 'block'}">
             <div class="hero-icon">
             <div>
                 <svg
@@ -831,6 +1106,11 @@ export class App extends LitElement {
                 <p>OR</p>
                 <div class="line"></div>
             </div>
+
+            <!-- TEST BUTTON: NovaTech brand scan -->
+            <sp-button size="m" variant="secondary" style="margin-bottom: 10px; width: 100%;" @click=${this._handleTestScan}>
+                🧪 Test NovaTech Scan
+            </sp-button>
             <sp-button size="m" @click=${this._handleAddBrand}>
                 
                 <svg
@@ -1081,8 +1361,79 @@ export class App extends LitElement {
                 </sp-button>
             </div>            
         </section>
-        <section class="third-page">
-        
+        <!-- ===== THIRD PAGE: Scan Results ===== -->
+        <section class="third-page" style="display: ${this._showThirdPage ? 'block' : 'none'}; padding: 16px;">
+            <!-- Header with Back button -->
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
+                <sp-button variant="secondary" size="s" @click=${this._handleBackFromThirdPage}>
+                    ← Back
+                </sp-button>
+                <h2 style="margin: 0;">Brand Check: ${this._selectedBrand || 'Unknown'}</h2>
+            </div>
+
+            <!-- Scan Button -->
+            <div style="margin-bottom: 20px;">
+                <sp-button 
+                    variant="accent" 
+                    size="m" 
+                    style="width: 100%;" 
+                    @click=${this._handleScanDesign}
+                    ?disabled=${this._isScanning}
+                >
+                    ${this._isScanning ? 'Scanning...' : 'Scan Design'}
+                </sp-button>
+            </div>
+
+            <!-- Results Area -->
+            <div class="results-area" style="min-height: 200px; border: 1px dashed #ccc; border-radius: 8px; padding: 16px;">
+                ${this._scanResults === null
+                ? html`<p style="color: #666; text-align: center;">Click "Scan Design" to check your design against brand guidelines.</p>`
+                : this._scanResults.success
+                    ? html`
+                            <div>
+                                <h3 style="margin-top: 0;">Scan Results</h3>
+                                <p><strong>Total Issues:</strong> ${this._scanResults.summary?.totalIssues || 0}</p>
+                                <p>Font Size Issues: ${this._scanResults.summary?.fontSizeIssueCount || 0}</p>
+                                <p>Font Family Issues: ${this._scanResults.summary?.fontFamilyIssueCount || 0}</p>
+                                
+                                ${this._scanResults.issues?.length > 0
+                            ? html`
+                                        <div style="margin-top: 16px;">
+                                            <h4>Issues Found:</h4>
+                                            <ul style="padding-left: 20px;">
+                                                ${this._scanResults.issues.map(issue => html`
+                                                    <li style="margin-bottom: 8px;">
+                                                        <strong>[${issue.type}]</strong> ${issue.message}
+                                                        <br/><small style="color: #666;">Element: "${issue.elementText}"</small>
+                                                    </li>
+                                                `)}
+                                            </ul>
+                                        </div>
+                                    `
+                            : html`<p style="color: green;">✓ No issues found! Your design follows brand guidelines.</p>`
+                        }
+                            </div>
+                        `
+                    : html`<p style="color: red;">Error: ${this._scanResults.error || 'Unknown error'}</p>`
+            }
+            </div>
+
+            <!-- One-Click Fix Button (placeholder) -->
+            ${this._scanResults?.issues?.length > 0
+                ? html`
+                    <div style="margin-top: 20px;">
+                        <sp-button 
+                            variant="primary" 
+                            size="m" 
+                            style="width: 100%;" 
+                            @click=${this._handleOneClickFix}
+                        >
+                            One-Click Fix (${this._scanResults.issues.length} issues)
+                        </sp-button>
+                    </div>
+                `
+                : ''
+            }
         </section>
       </sp-theme>
     `;
