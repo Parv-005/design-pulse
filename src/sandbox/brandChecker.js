@@ -37,7 +37,8 @@
  *   }
  */
 export function checkBrandGuidelines(layersData, brandGuidelines) {
-    const LOG_PREFIX = "[checkBrandGuidelines]";
+    const LOG_PREFIX = "[SANDBOX:FONT-SIZE]";
+    console.log(`${LOG_PREFIX} Checking font sizes...`);
     const issues = [];
 
     // Validate inputs
@@ -131,7 +132,8 @@ export function checkBrandGuidelines(layersData, brandGuidelines) {
  *   }
  */
 export function checkFontFamily(layersData, brandGuidelines) {
-    const LOG_PREFIX = "[checkFontFamily]";
+    const LOG_PREFIX = "[SANDBOX:FONT-FAMILY]";
+    console.log(`${LOG_PREFIX} Checking font families...`);
     const issues = [];
 
     // Validate inputs
@@ -199,6 +201,161 @@ export function checkFontFamily(layersData, brandGuidelines) {
 }
 
 /**
+ * Check that colors used in text and shapes are in the brand's allowed color list
+ * 
+ * @param {Array} layersData - Layers from getAllLayersData()
+ * @param {Object} brandGuidelines - Brand guidelines object:
+ *   {
+ *     colors: {
+ *       primary: ["#FF0000", "#00FF00"],  // Primary brand colors
+ *       secondary: ["#0000FF"]  // Secondary brand colors
+ *     }
+ *   }
+ * 
+ * @returns {Array} Array of issues:
+ *   {
+ *     type: "COLOR",
+ *     elementId: "abc-123",
+ *     elementText: "Hello World",
+ *     colorType: "fontColor" | "fill" | "stroke",
+ *     message: "Color #123456 is not in the brand's allowed color list",
+ *     expected: ["#ff0000", "#00ff00"],
+ *     actual: "#123456"
+ *   }
+ */
+export function checkColor(layersData, brandGuidelines) {
+    const LOG_PREFIX = "[SANDBOX:COLOR]";
+    console.log(`${LOG_PREFIX} Checking colors...`);
+    const issues = [];
+
+    // Validate inputs
+    if (!layersData || !Array.isArray(layersData)) {
+        console.error(`${LOG_PREFIX} Invalid layersData`);
+        return issues;
+    }
+    if (!brandGuidelines) {
+        console.error(`${LOG_PREFIX} Invalid brandGuidelines`);
+        return issues;
+    }
+
+    // Get allowed colors from brand guidelines
+    const brandColors = brandGuidelines.colors;
+    if (!brandColors) {
+        console.warn(`${LOG_PREFIX} No colors defined in brand guidelines`);
+        return issues;
+    }
+
+    // Combine primary and secondary colors into a single list (lowercase for comparison)
+    const primaryColors = (brandColors.primary || []).map(c => c.toLowerCase());
+    const secondaryColors = (brandColors.secondary || []).map(c => c.toLowerCase());
+    const allowedColors = [...primaryColors, ...secondaryColors];
+
+    if (allowedColors.length === 0) {
+        console.warn(`${LOG_PREFIX} No brand colors defined (primary or secondary)`);
+        return issues;
+    }
+
+    console.log(`${LOG_PREFIX} Allowed colors:`, allowedColors);
+
+    // Helper function to check if a color is allowed (with tolerance for slight variations)
+    const isColorAllowed = (hexColor) => {
+        if (!hexColor) return true; // No color = no issue
+        const normalizedColor = hexColor.toLowerCase();
+        return allowedColors.includes(normalizedColor);
+    };
+
+    // Helper function to get display name for element
+    const getElementDisplayName = (layer) => {
+        if (layer.text || layer.fullText) {
+            return layer.text || layer.fullText;
+        }
+        return layer.name || layer.type || 'Unknown';
+    };
+
+    // Check each layer
+    for (const layer of layersData) {
+        // Skip pages only (we'll check artboard backgrounds)
+        if (layer.type === 'Page') continue;
+
+        // Check artboard background color
+        if (layer.type === 'ab:Artboard') {
+            if (layer.fill && layer.fill.type === 'Color' && layer.fill.color?.hex) {
+                const backgroundColor = layer.fill.color.hex;
+                if (!isColorAllowed(backgroundColor)) {
+                    issues.push({
+                        type: "COLOR",
+                        elementId: layer.id,
+                        elementType: "Artboard",
+                        elementText: "Background",
+                        colorType: "background",
+                        message: `Background color "${backgroundColor}" is not in the brand's allowed color list`,
+                        expected: allowedColors,
+                        actual: backgroundColor
+                    });
+                }
+            }
+            continue; // Don't check other properties for artboards
+        }
+
+        // Check text layers for font colors
+        if (layer.type === 'Text' && layer.characterStyles && Array.isArray(layer.characterStyles)) {
+            for (const style of layer.characterStyles) {
+                const fontColor = style.fontColor?.hex;
+                if (fontColor && !isColorAllowed(fontColor)) {
+                    issues.push({
+                        type: "COLOR",
+                        elementId: layer.id,
+                        elementType: "Text",
+                        elementText: getElementDisplayName(layer),
+                        colorType: "fontColor",
+                        message: `Font color "${fontColor}" is not in the brand's allowed color list`,
+                        expected: allowedColors,
+                        actual: fontColor
+                    });
+                }
+            }
+        }
+
+        // Check shapes for fill colors
+        if (layer.fill && layer.fill.type === 'Color' && layer.fill.color?.hex) {
+            const fillColor = layer.fill.color.hex;
+            if (!isColorAllowed(fillColor)) {
+                issues.push({
+                    type: "COLOR",
+                    elementId: layer.id,
+                    elementType: layer.type,
+                    elementText: getElementDisplayName(layer),
+                    colorType: "fill",
+                    message: `Fill color "${fillColor}" is not in the brand's allowed color list`,
+                    expected: allowedColors,
+                    actual: fillColor
+                });
+            }
+        }
+
+        // Check shapes for stroke colors
+        if (layer.stroke && layer.stroke.color?.hex) {
+            const strokeColor = layer.stroke.color.hex;
+            if (!isColorAllowed(strokeColor)) {
+                issues.push({
+                    type: "COLOR",
+                    elementId: layer.id,
+                    elementType: layer.type,
+                    elementText: getElementDisplayName(layer),
+                    colorType: "stroke",
+                    message: `Stroke color "${strokeColor}" is not in the brand's allowed color list`,
+                    expected: allowedColors,
+                    actual: strokeColor
+                });
+            }
+        }
+    }
+
+    console.log(`${LOG_PREFIX} Complete. Found ${issues.length} color issues`);
+    return issues;
+}
+
+/**
  * Run all brand guideline checks and return combined results
  * 
  * @param {Array} layersData - Layers from getAllLayersData()
@@ -208,32 +365,55 @@ export function checkFontFamily(layersData, brandGuidelines) {
  *   {
  *     fontSizeIssues: [...],
  *     fontFamilyIssues: [...],
+ *     colorIssues: [...],
  *     allIssues: [...],  // Combined array
  *     summary: {
- *       totalIssues: 3,
+ *       totalIssues: 4,
  *       fontSizeIssueCount: 1,
- *       fontFamilyIssueCount: 2
+ *       fontFamilyIssueCount: 2,
+ *       colorIssueCount: 1
  *     }
  *   }
  */
 export function runAllBrandChecks(layersData, brandGuidelines) {
-    const LOG_PREFIX = "[runAllBrandChecks]";
-    console.log(`${LOG_PREFIX} Starting all brand checks...`);
+    const LOG_PREFIX = "[SANDBOX:BRAND-CHECK]";
+    console.log(`${LOG_PREFIX} 🚀 Starting combined brand checks...`);
 
     const fontSizeIssues = checkBrandGuidelines(layersData, brandGuidelines);
     const fontFamilyIssues = checkFontFamily(layersData, brandGuidelines);
+    const colorIssues = checkColor(layersData, brandGuidelines);
 
     const result = {
         fontSizeIssues: fontSizeIssues,
         fontFamilyIssues: fontFamilyIssues,
-        allIssues: [...fontSizeIssues, ...fontFamilyIssues],
+        colorIssues: colorIssues,
+        allIssues: [...fontSizeIssues, ...fontFamilyIssues, ...colorIssues],
         summary: {
-            totalIssues: fontSizeIssues.length + fontFamilyIssues.length,
+            totalIssues: fontSizeIssues.length + fontFamilyIssues.length + colorIssues.length,
             fontSizeIssueCount: fontSizeIssues.length,
-            fontFamilyIssueCount: fontFamilyIssues.length
+            fontFamilyIssueCount: fontFamilyIssues.length,
+            colorIssueCount: colorIssues.length
         }
     };
 
     console.log(`${LOG_PREFIX} Complete. Summary:`, result.summary);
+
+    // Log complete issues list for verification using console.warn (bypasses Adobe's filter)
+    console.warn(`${LOG_PREFIX} ========== COMPLETE ISSUES LIST (${result.allIssues.length} issues) ==========`);
+    for (let i = 0; i < result.allIssues.length; i++) {
+        const issue = result.allIssues[i];
+        let expectedStr = '';
+        if (issue.type === 'FONT_SIZE') {
+            expectedStr = `min: ${issue.expected.min}, max: ${issue.expected.max}`;
+        } else if (Array.isArray(issue.expected)) {
+            expectedStr = issue.expected.join(', ');
+        } else {
+            expectedStr = String(issue.expected);
+        }
+        const elemText = issue.elementText ? `"${issue.elementText}"` : issue.elementType;
+        console.warn(`${LOG_PREFIX} [${i + 1}] ${issue.type} | ${elemText} | ${issue.message} | actual: ${issue.actual} | expected: ${expectedStr}`);
+    }
+    console.warn(`${LOG_PREFIX} ============================================================`);
+
     return result;
 }

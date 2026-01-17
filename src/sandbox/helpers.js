@@ -64,15 +64,47 @@ export const extractColor = (color) => {
  */
 export const extractFill = (node) => {
     try {
+        // Standard fill property for most FillableNodes
         if (node.fill) {
             return {
                 type: node.fill.type || "unknown",
                 color: extractColor(node.fill.color)
             };
         }
-    } catch (e) { }
+
+        // SolidColorShape doesn't extend FillableNode - it may have different color access
+        // Try to access color directly if it's a SolidColorShape
+        if (node.type === 'SolidColorShape' || node.type === 'ab:SolidColorShape') {
+            // Log available properties for debugging
+            console.log(`[extractFill] SolidColorShape found, checking properties...`);
+
+            // Try various potential color properties
+            if (node.color) {
+                console.log(`[extractFill] Found node.color`);
+                return {
+                    type: 'Color',
+                    color: extractColor(node.color)
+                };
+            }
+
+            // Check if it has a fillColor property
+            if (node.fillColor) {
+                console.log(`[extractFill] Found node.fillColor`);
+                return {
+                    type: 'Color',
+                    color: extractColor(node.fillColor)
+                };
+            }
+
+            // Log all enumerable properties for debugging
+            console.log(`[extractFill] SolidColorShape keys:`, Object.keys(node));
+        }
+    } catch (e) {
+        console.error(`[extractFill] Error:`, e);
+    }
     return null;
 };
+
 
 /**
  * Safely extract stroke information from a node

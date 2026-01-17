@@ -555,6 +555,39 @@ export const style = css`
     opacity: 1;
     fill: #FF5D5D;
   }
+
+  /* Third page styles */
+  .third-page {
+    position: absolute;
+    z-index: 3;
+    top: 0;
+    width: 92vw;
+  }
+
+  .third-page h2 {
+    font-size: 1.2rem;
+  }
+
+  .third-page h3 {
+    font-size: 1.1rem;
+  }
+
+  .results-area {
+    background-color: #f9f9f9;
+  }
+
+  .results-area ul {
+    list-style: none;
+    padding-left: 0;
+  }
+
+  .results-area li {
+    padding: 10px;
+    background-color: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 5px;
+    margin-bottom: 8px;
+  }
   
 
 `;
