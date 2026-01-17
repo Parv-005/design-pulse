@@ -342,16 +342,72 @@ Generate the fix instructions:"""
         }), 500
 
 
+# --- COLOR EXTRACTION ENDPOINT ---
+# Utilities imported from color_utils.py for modularity
+
+from color_utils import extract_logo_colors_from_base64, colors_to_hex
+
+
+@app.route('/extract_colors', methods=['POST'])
+def extract_colors():
+    """
+    Extract dominant colors from an uploaded logo image.
+    
+    Expects JSON body with:
+    - image_base64: Base64 encoded image (data:image/png;base64,... or raw base64)
+    
+    Returns:
+    - success: boolean
+    - colors: Array of hex color strings (e.g., ["#ff5733", "#33ff57"])
+    """
+    try:
+        print("=" * 50)
+        print("Received extract_colors request")
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "No JSON data provided"}), 400
+        
+        image_base64 = data.get('image_base64')
+        if not image_base64:
+            return jsonify({"success": False, "error": "Missing image_base64"}), 400
+        
+        # Extract colors using modular utility
+        colors = extract_logo_colors_from_base64(image_base64)
+        hex_colors = colors_to_hex(colors)
+        
+        print(f"Extracted {len(hex_colors)} colors: {hex_colors}")
+        
+        return jsonify({
+            "success": True,
+            "colors": hex_colors
+        })
+        
+    except Exception as e:
+        import traceback
+        print("=" * 50)
+        print(f"ERROR extracting colors: {e}")
+        traceback.print_exc()
+        print("=" * 50)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
 if __name__ == '__main__':
     print("=" * 50)
     print("Design Pulse - Python Server")
     print("=" * 50)
     print(f"Gemini API configured: {api_key is not None}")
     print("Endpoints:")
-    print("  GET  /health  - Health check")
-    print("  POST /analyze - Analyze design for brand consistency")
-    print("  POST /fix     - Generate one-click fix instructions")
+    print("  GET  /health         - Health check")
+    print("  POST /analyze        - Analyze design for brand consistency")
+    print("  POST /fix            - Generate one-click fix instructions")
+    print("  POST /extract_colors - Extract dominant colors from logo")
     print("Starting server on http://localhost:5000")
     print("=" * 50)
     app.run(host='0.0.0.0', port=5000, debug=True)
+
+
 
