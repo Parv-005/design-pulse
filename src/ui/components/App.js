@@ -944,88 +944,54 @@ export class App extends LitElement {
     }
 
     async _handleExtractColorsFromLogo() {
+        const LOG = "[EXTRACT-COLORS]";
+        console.log(`${LOG} Starting color extraction from logo...`);
+
         if (!this._uploadedLogo) {
             alert("Please upload a logo first");
             return;
         }
 
         try {
-            // Create an image element to extract colors from
-            const img = new Image();
-            img.crossOrigin = 'anonymous';
+            console.log(`${LOG} Calling /extract_colors endpoint...`);
 
-            img.onload = () => {
-                try {
-                    // Create canvas to analyze image
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    canvas.width = img.width;
-                    canvas.height = img.height;
-                    ctx.drawImage(img, 0, 0);
+            const response = await fetch('http://localhost:5000/extract_colors', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    image_base64: this._uploadedLogo
+                })
+            });
 
-                    // Get image data
-                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                    const data = imageData.data;
+            if (!response.ok) {
+                throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+            }
 
-                    // Extract dominant colors using simple algorithm
-                    const colorMap = new Map();
+            const result = await response.json();
+            console.log(`${LOG} Server response:`, result);
 
-                    // Sample pixels (every 10th pixel for performance)
-                    for (let i = 0; i < data.length; i += 40) {
-                        const r = data[i];
-                        const g = data[i + 1];
-                        const b = data[i + 2];
-                        const a = data[i + 3];
+            if (result.success && result.colors && result.colors.length > 0) {
+                // Convert hex colors to color objects
+                const extractedColors = result.colors.map(hex => ({
+                    id: `extracted-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    value: hex
+                }));
 
-                        // Skip transparent pixels
-                        if (a < 128) continue;
-
-                        // Convert to hex
-                        const hex = this._rgbToHex(r, g, b);
-
-                        // Group similar colors (simple quantization)
-                        const quantizedR = Math.round(r / 32) * 32;
-                        const quantizedG = Math.round(g / 32) * 32;
-                        const quantizedB = Math.round(b / 32) * 32;
-                        const quantizedHex = this._rgbToHex(quantizedR, quantizedG, quantizedB);
-
-                        colorMap.set(quantizedHex, (colorMap.get(quantizedHex) || 0) + 1);
-                    }
-
-                    // Get top colors (most frequent)
-                    const sortedColors = Array.from(colorMap.entries())
-                        .sort((a, b) => b[1] - a[1])
-                        .slice(0, 5) // Get top 5 colors
-                        .map(([hex]) => ({
-                            id: `extracted-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                            value: hex
-                        }));
-
-                    if (sortedColors.length > 0) {
-                        // Add extracted colors to "other" category
-                        this._brandColors = {
-                            ...this._brandColors,
-                            other: [...this._brandColors.other, ...sortedColors]
-                        };
-                        this.requestUpdate();
-                        alert(`Extracted ${sortedColors.length} color(s) from logo`);
-                    } else {
-                        alert("Could not extract colors from logo");
-                    }
-                } catch (error) {
-                    console.error("Error extracting colors:", error);
-                    alert("Error extracting colors from logo");
-                }
-            };
-
-            img.onerror = () => {
-                alert("Error loading logo image");
-            };
-
-            img.src = this._uploadedLogo;
+                // Add extracted colors to "other" category
+                this._brandColors = {
+                    ...this._brandColors,
+                    other: [...this._brandColors.other, ...extractedColors]
+                };
+                this.requestUpdate();
+                alert(`✅ Extracted ${extractedColors.length} color(s) from logo`);
+                console.log(`${LOG} Added ${extractedColors.length} colors to 'other' category`);
+            } else {
+                alert("Could not extract colors from logo");
+                console.warn(`${LOG} No colors extracted:`, result);
+            }
         } catch (error) {
-            console.error("Error extracting colors from logo:", error);
-            alert("Error extracting colors from logo");
+            console.error(`${LOG} Error:`, error);
+            alert(`Error extracting colors: ${error.message}`);
         }
     }
 
