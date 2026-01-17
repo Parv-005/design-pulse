@@ -36,6 +36,10 @@ import { style } from "./App.css.js";
 
 import { RuntimeType } from "https://new.express.adobe.com/static/add-on-sdk/sdk.js";
 
+// PDF.js for parsing PDF files
+import * as pdfjsLib from "pdfjs-dist";
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
 @customElement("add-on-app")
 export class App extends LitElement {
     @property({ type: Object })
@@ -304,7 +308,8 @@ export class App extends LitElement {
         }
     }
 
-    _handlePdfUpload(event) {
+    async _handlePdfUpload(event) {
+        const LOG = "[PDF-UPLOAD]";
         const file = event.target.files[0];
         if (!file) return;
 
@@ -320,33 +325,92 @@ export class App extends LitElement {
             return;
         }
 
-        // Read file as data URL
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            const dataUrl = e.target.result;
-            this._uploadedPdf = dataUrl;
-            this._pdfFileName = file.name;
+        console.log(`${LOG} Processing PDF: ${file.name}`);
+        this._pdfFileName = file.name;
 
-            // Send to backend for extraction
-            if (this._sandboxProxy && this._sandboxProxy.extractBrandDataFromPdf) {
-                try {
-                    const extractedData = await this._sandboxProxy.extractBrandDataFromPdf(dataUrl, file.name);
-                    console.log("Extracted brand data from PDF:", extractedData);
+        try {
+            // Read file as ArrayBuffer for pdfjs
+            const arrayBuffer = await file.arrayBuffer();
+            console.log(`${LOG} PDF loaded, parsing...`);
 
-                    // Populate form with extracted data
-                    if (extractedData) {
-                        this._populateFormFromExtractedData(extractedData);
-                    }
-                } catch (error) {
-                    console.error("Error extracting brand data from PDF:", error);
-                    alert("Error extracting data from PDF. Please try again or add manually.");
-                }
+            // Parse PDF with pdfjs-dist
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            console.log(`${LOG} PDF has ${pdf.numPages} pages`);
+
+            // Extract text from all pages
+            let fullText = "";
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items.map(item => item.str).join(" ");
+                fullText += pageText + "\n";
             }
 
-            // Update UI
+            console.log(`${LOG} Extracted ${fullText.length} characters from PDF`);
+
+            // Store the extracted text
+            this._uploadedPdf = fullText;
+            this._pdfExtractedText = fullText;
+
+            // Try to auto-extract some basic info
+            const extractedData = this._parseExtractedPdfText(fullText);
+            if (extractedData) {
+                this._populateFormFromExtractedData(extractedData);
+            }
+
+            alert(`✅ PDF imported successfully! Extracted ${fullText.length} characters.`);
             this.requestUpdate();
-        };
-        reader.readAsDataURL(file);
+
+        } catch (error) {
+            console.error(`${LOG} Error:`, error);
+            alert(`Error reading PDF: ${error.message}`);
+        }
+    }
+
+    /**
+     * Parse extracted PDF text to find brand data
+     */
+    _parseExtractedPdfText(text) {
+        const data = {};
+        const lowerText = text.toLowerCase();
+
+        // Try to find brand name (usually near the start or after "brand name:")
+        const brandMatch = text.match(/brand\s*name[:\s]+([A-Za-z0-9\s]+)/i);
+        if (brandMatch) {
+            data.brandName = brandMatch[1].trim().split(/\s+/).slice(0, 3).join(" ");
+        }
+
+        // Try to find colors (hex codes)
+        const hexMatches = text.match(/#[A-Fa-f0-9]{6}\b/g);
+        if (hexMatches && hexMatches.length > 0) {
+            data.colors = [...new Set(hexMatches)].map((hex, i) => ({
+                id: `pdf-color-${i}`,
+                value: hex.toUpperCase()
+            }));
+        }
+
+        // Try to find font names (common patterns)
+        const fontPatterns = [
+            /font[:\s]+([A-Za-z\s]+)/gi,
+            /typeface[:\s]+([A-Za-z\s]+)/gi,
+            /(Arial|Helvetica|Roboto|Open Sans|Montserrat|Lato|Poppins|Inter|Source Sans|Futura|Avenir)/gi
+        ];
+        const foundFonts = new Set();
+        for (const pattern of fontPatterns) {
+            const matches = text.matchAll(pattern);
+            for (const match of matches) {
+                const fontName = match[1]?.trim();
+                if (fontName && fontName.length > 2 && fontName.length < 30) {
+                    foundFonts.add(fontName);
+                }
+            }
+        }
+        if (foundFonts.size > 0) {
+            data.selectedFonts = Array.from(foundFonts).slice(0, 5);
+        }
+
+        console.log("[PDF-PARSE] Extracted data:", data);
+        return Object.keys(data).length > 0 ? data : null;
     }
 
     _populateFormFromExtractedData(extractedData) {
