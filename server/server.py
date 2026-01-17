@@ -395,19 +395,125 @@ def extract_colors():
         }), 500
 
 
+# --- GEMINI LEGACY API ENDPOINTS ---
+# These use the deprecated google-generativeai package for backward compatibility
+# Import utilities from gemini_utils module
+
+try:
+    from gemini_utils import analyze_design_with_rules, describe_template as gemini_describe_template
+    LEGACY_GEMINI_AVAILABLE = True
+except ImportError:
+    LEGACY_GEMINI_AVAILABLE = False
+    print("WARNING: gemini_utils not available. Legacy Gemini endpoints disabled.")
+
+
+@app.route('/analyze_rules', methods=['POST'])
+def analyze_design_rules():
+    """
+    Analyze design against brand rules using legacy Gemini API.
+    Expects JSON body with:
+    - api_key: Gemini API key
+    - brand_rules_text: Text of brand guidelines
+    - design_data: JSON string of design layer data
+    """
+    if not LEGACY_GEMINI_AVAILABLE:
+        return jsonify({"success": False, "error": "Legacy Gemini API not available"}), 500
+    
+    try:
+        print("=" * 50)
+        print("Received analyze_rules request")
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "No JSON data provided"}), 400
+        
+        api_key = data.get('api_key')
+        brand_rules_text = data.get('brand_rules_text')
+        design_data = data.get('design_data')
+        
+        if not api_key or not brand_rules_text or not design_data:
+            return jsonify({"success": False, "error": "Missing required fields"}), 400
+        
+        text, error = analyze_design_with_rules(api_key, brand_rules_text, design_data)
+        
+        if error:
+            return jsonify({"success": False, "error": error}), 500
+        
+        # Parse and return JSON
+        try:
+            result = json.loads(text)
+            return jsonify({"success": True, **result})
+        except json.JSONDecodeError:
+            return jsonify({"success": True, "raw_response": text})
+            
+    except Exception as e:
+        import traceback
+        print(f"ERROR in analyze_rules: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/describe_template_legacy', methods=['POST'])
+def describe_template_endpoint():
+    """
+    Generate structured description of a design template using legacy Gemini API.
+    Expects JSON body with:
+    - api_key: Gemini API key
+    - design_data: Dictionary of design layer data
+    """
+    if not LEGACY_GEMINI_AVAILABLE:
+        return jsonify({"success": False, "error": "Legacy Gemini API not available"}), 500
+    
+    try:
+        print("=" * 50)
+        print("Received describe_template_legacy request")
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "No JSON data provided"}), 400
+        
+        api_key = data.get('api_key')
+        design_data = data.get('design_data')
+        
+        if not api_key or not design_data:
+            return jsonify({"success": False, "error": "Missing required fields"}), 400
+        
+        text, error = gemini_describe_template(api_key, design_data)
+        
+        if error:
+            return jsonify({"success": False, "error": error}), 500
+        
+        # Parse and return JSON
+        try:
+            result = json.loads(text)
+            return jsonify({"success": True, **result})
+        except json.JSONDecodeError:
+            return jsonify({"success": True, "raw_response": text})
+            
+    except Exception as e:
+        import traceback
+        print(f"ERROR in describe_template_legacy: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 if __name__ == '__main__':
     print("=" * 50)
     print("Design Pulse - Python Server")
     print("=" * 50)
     print(f"Gemini API configured: {api_key is not None}")
+    print(f"Legacy Gemini available: {LEGACY_GEMINI_AVAILABLE}")
     print("Endpoints:")
-    print("  GET  /health         - Health check")
-    print("  POST /analyze        - Analyze design for brand consistency")
-    print("  POST /fix            - Generate one-click fix instructions")
-    print("  POST /extract_colors - Extract dominant colors from logo")
+    print("  GET  /health                  - Health check")
+    print("  POST /analyze                 - Analyze design for brand consistency")
+    print("  POST /fix                     - Generate one-click fix instructions")
+    print("  POST /extract_colors          - Extract dominant colors from logo")
+    print("  POST /analyze_rules           - Analyze with custom brand rules (legacy)")
+    print("  POST /describe_template_legacy - Describe template (legacy)")
     print("Starting server on http://localhost:5000")
     print("=" * 50)
     app.run(host='0.0.0.0', port=5000, debug=True)
+
 
 
 
